@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block nav_home %}active{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+ <h2 class="section-title">EcoCart Logistic System</h2>
+</div>
+
+<!-- Stats Cards -->
+<div class="row g-3 mb-4">
+ <div class="col-md-4">
+ <div class="card text-center p-3">
+<!-- <div class="fs-1">️</div>-->
+ <h5 class="mt-2 text-success">Route Optimizer</h5>
+ <p class="text-muted small mb-2">DFS · BFS · A* · IDA*</p>
+ <a href="/route/" class="btn btn-eco btn-sm w-100">Run Algorithms</a>
+ </div>
+ </div>
+ <div class="col-md-4">
+ <div class="card text-center p-3">
+ <div class="fs-1"></div>
+ <h5 class="mt-2 text-success">Inventory Forecast</h5>
+ <p class="text-muted small mb-2">Polynomial Regression ML</p>
+ <a href="/inventory/" class="btn btn-eco btn-sm w-100">View Forecast</a>
+ </div>
+ </div>
+ <div class="col-md-4">
+ <div class="card text-center p-3">
+ <div class="fs-1"></div>
+ <h5 class="mt-2 text-success">Customer Segments</h5>
+ <p class="text-muted small mb-2">K-Means + Bias Analysis</p>
+ <a href="/segment/" class="btn btn-eco btn-sm w-100">Analyse Customers</a>
+ </div>
+ </div>
+ <div class="col-md-3">
+ </div>
+ </div>
+</div>
+
+<!-- Problem Overview -->
+<div class="row g-3 mb-4">
+ <div class="col-md-19">
+ <div class="card">
+ <div class="card-header"> About EcoCart</div>
+ <div class="card-body">
+  <div class="row g-2">
+ <div class="col-md-4">
+ <div class="p-3 rounded" style="background:#e9f5ee;">
+ <strong> Route Optimisation</strong><br>
+ <small class="text-muted">Find efficient delivery paths in urban and rural areas using search algorithms.</small>
+ </div>
+ </div>
+ <div class="col-md-4">
+ <div class="p-3 rounded" style="background:#e9f5ee;">
+ <strong> Inventory Forecasting</strong><br>
+ <small class="text-muted">Predict product demand using historical sales data and machine learning.</small>
+ </div>
+ </div>
+ <div class="col-md-4">
+ <div class="p-3 rounded" style="background:#e9f5ee;">
+ <strong> Customer Segmentation</strong><br>
+ <small class="text-muted">Classify customers by buying behaviour for targeted marketing campaigns.</small>
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+</div>
+
+<div class="modal fade" id="agentModal" tabindex="-1">
+ <div class="modal-dialog modal-lg">
+  <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+ </div>
+
+{% endblock %}

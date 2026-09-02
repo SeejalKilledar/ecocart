@@ -1,0 +1,190 @@
+{% extends 'base.html' %}
+{% block title %}Customer Segmentation{% endblock %}
+{% block nav_seg %}active{% endblock %}
+
+{% block content %}
+<h2 class="section-title mb-3"> Customer Segmentation & Bias Analysis</h2>
+
+<div class="row g-3 mb-3">
+ <div class="col-md-4">
+ <div class="card">
+ <div class="card-header"> Dataset Settings</div>
+ <div class="card-body">
+ <label class="form-label fw-bold">Dataset Type</label>
+ <div class="form-check">
+ <input class="form-check-input" type="radio" name="dataType" id="biasedRadio" value="biased" checked>
+ <label class="form-check-label" for="biasedRadio">
+ <strong>Biased</strong> — Urban over-represented (80%/10%/10%)
+ </label>
+ </div>
+ <div class="form-check mt-2 mb-3">
+ <input class="form-check-input" type="radio" name="dataType" id="fairRadio" value="fair">
+ <label class="form-check-label" for="fairRadio">
+ <strong>Balanced</strong> — Equal Urban/Suburban/Rural (after mitigation)
+ </label>
+ </div>
+ <button class="btn btn-eco w-100" onclick="runSegmentation()">
+ Run K-Means Clustering
+ </button>
+ </div>
+ </div>
+
+ <!-- Bias Explanation -->
+ <div class="card mt-3">
+<!-- <div class="card-header text-warning" style="background:#1b4332;">-->
+<!-- Bias Sources & Mitigation-->
+ </div>
+ </div>
+
+ <div class="col-md-4">
+ <div class="card">
+ <div class="card-header"> Segment Distribution</div>
+ <div class="card-body"><canvas id="distChart" height="220"></canvas></div>
+ </div>
+ </div>
+
+ <div class="col-md-4">
+ <div class="card">
+ <div class="card-header"> Bias Metrics</div>
+ <div class="card-body" id="biasMetrics">
+ <p class="text-muted text-center mt-4">Run clustering to see bias analysis.</p>
+ </div>
+ </div>
+ </div>
+</div>
+
+<!-- Scatter Plot + Table -->
+<div class="row g-3">
+ <div class="col-md-6">
+ <div class="card">
+ <div class="card-header"> Customer Feature Space</div>
+ <div class="card-body"><canvas id="scatterChart" height="230"></canvas></div>
+ </div>
+ </div>
+ <div class="col-md-6">
+ <div class="card">
+ <div class="card-header"> Sample Customers (first 20)</div>
+ <div class="card-body p-0" style="max-height:300px;overflow-y:auto;">
+ <table class="table table-hover table-sm mb-0">
+ <thead class="table-success sticky-top">
+ <tr><th>#</th><th>Freq</th><th>Spend €</th><th>Distance km</th><th>Segment</th></tr>
+ </thead>
+ <tbody id="customerRows"></tbody>
+ </table>
+ </div>
+ </div>
+ </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let distChart, scatterChart;
+const SEG_COLORS = {'High-Value Urban':'#2d6a4f','Mid-Value Suburban':'#52b788','Low-Frequency Rural':'#f4a261'};
+
+async function runSegmentation() {
+ const biased = document.querySelector('input[name="dataType"]:checked').value === 'biased';
+
+ const res = await fetch('/segment/analyze/', {
+ method: 'POST',
+ headers: {'Content-Type':'application/json','X-CSRFToken': getCookie('csrftoken')},
+ body: JSON.stringify({biased})
+ });
+ const d = await res.json();
+ renderSegments(d);
+}
+
+function renderSegments(d) {
+ // Distribution Pie
+ const distLabels = Object.keys(d.distribution);
+ const distData = distLabels.map(k => d.distribution[k].count);
+ const distColors = distLabels.map(k => SEG_COLORS[k] || '#888');
+
+ if (distChart) distChart.destroy();
+ distChart = new Chart(document.getElementById('distChart'), {
+ type: 'doughnut',
+ data: { labels: distLabels, datasets: [{ data: distData, backgroundColor: distColors }] },
+ options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+ });
+
+ // Bias Metrics
+ const bm = d.bias_metrics;
+ const urbanBg = bm.urban_accuracy > 80 ? 'bg-success' : 'bg-warning';
+ const ruralBg = bm.rural_accuracy > 60 ? 'bg-success' : 'bg-danger';
+ document.getElementById('biasMetrics').innerHTML = `
+ <div class="text-center mb-3">
+ <span class="badge fs-6 ${bm.biased_dataset ? 'bg-danger' : 'bg-success'}">
+ ${bm.biased_dataset ? '️ Biased Dataset' : ' Balanced Dataset'}
+ </span>
+ </div>
+ <div class="row text-center g-2">
+ <div class="col-6">
+ <div class="p-3 rounded ${urbanBg} text-white">
+ <div class="fs-3 fw-bold">${bm.urban_accuracy}%</div>
+ <small>Urban Accuracy</small>
+ </div>
+ </div>
+ <div class="col-6">
+ <div class="p-3 rounded ${ruralBg} text-white">
+ <div class="fs-3 fw-bold">${bm.rural_accuracy}%</div>
+ <small>Rural Accuracy</small>
+ </div>
+ </div>
+ </div>
+ <div class="mt-3 p-2 rounded" style="background:#f0f4f0">
+ <small><strong>Total customers:</strong> ${bm.total_customers}<br>
+ <strong>Mitigation applied:</strong> ${d.mitigation.applied ? ' Yes' : ' No'}<br>
+ <strong>Strategy:</strong> ${d.mitigation.strategy}</small>
+ </div>`;
+
+ // Scatter: purchase_freq vs avg_spend, coloured by segment
+ const segGroups = {};
+ d.customers.forEach(c => {
+ if (!segGroups[c.segment]) segGroups[c.segment] = { x: [], y: [] };
+ segGroups[c.segment].x.push(c.purchase_freq);
+ segGroups[c.segment].y.push(c.avg_spend);
+ });
+
+ const datasets = Object.entries(segGroups).map(([seg, pts]) => ({
+ label: seg,
+ data: pts.x.map((x, i) => ({ x, y: pts.y[i] })),
+ backgroundColor: SEG_COLORS[seg] + 'aa',
+ pointRadius: 5,
+ }));
+
+ if (scatterChart) scatterChart.destroy();
+ scatterChart = new Chart(document.getElementById('scatterChart'), {
+ type: 'scatter',
+ data: { datasets },
+ options: {
+ scales: {
+ x: { title: { display: true, text: 'Purchase Frequency (monthly)' } },
+ y: { title: { display: true, text: 'Avg Spend (€)' } }
+ },
+ plugins: { legend: { position: 'bottom' } }
+ }
+ });
+
+ // Table
+ let rows = '';
+ d.customers.slice(0, 20).forEach(c => {
+ const color = SEG_COLORS[c.segment] || '#888';
+ rows += `<tr>
+ <td>${c.id}</td>
+ <td>${c.purchase_freq}</td>
+ <td>€${c.avg_spend}</td>
+ <td>${c.distance_km} km</td>
+ <td><span class="badge" style="background:${color}">${c.segment}</span></td>
+ </tr>`;
+ });
+ document.getElementById('customerRows').innerHTML = rows;
+}
+
+function getCookie(name) {
+ const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+ return v ? v[2] : null;
+}
+
+runSegmentation();
+</script>
+{% endblock %}

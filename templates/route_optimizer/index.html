@@ -1,0 +1,245 @@
+{% extends 'base.html' %}
+{% block title %}Route Optimizer{% endblock %}
+{% block nav_route %}active{% endblock %}
+
+{% block extra_head %}
+<style>
+ canvas#graphCanvas { border: 1px solid #ddd; border-radius: 8px; background: #fafff9; }
+ .result-card { border-left: 4px solid var(--eco-accent); }
+ .path-node { display:inline-block; background:var(--eco-green); color:#fff; padding:2px 10px;
+ border-radius:20px; font-size:.8rem; margin:2px; }
+ .path-arrow { color: var(--eco-accent); font-weight: bold; }
+ .algo-dfs { border-left-color: #e63946 !important; }
+ .algo-bfs { border-left-color: #457b9d !important; }
+ .algo-astar { border-left-color: #2d6a4f !important; }
+ .algo-idastar { border-left-color: #f4a261 !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 class="section-title mb-3">️ Route Optimisation</h2>
+
+<div class="row g-3">
+ <!-- Controls -->
+ <div class="col-md-3">
+ <div class="card">
+ <div class="card-header"> Configuration</div>
+ <div class="card-body">
+ <label class="form-label fw-bold">Start Node</label>
+ <select id="startNode" class="form-select mb-3">
+ {% for node in nodes %}
+ <option value="{{ node }}" {% if node == 'Warehouse' %}selected{% endif %}>{{ node }}</option>
+ {% endfor %}
+ </select>
+ <label class="form-label fw-bold">Goal Node</label>
+ <select id="goalNode" class="form-select mb-3">
+ {% for node in nodes %}
+ <option value="{{ node }}" {% if node == 'Depot_H' %}selected{% endif %}>{{ node }}</option>
+ {% endfor %}
+ </select>
+ <label class="form-label fw-bold">Algorithm</label>
+ <select id="algorithm" class="form-select mb-3">
+ <option value="all">Compare All</option>
+ <option value="dfs">DFS — Depth First Search</option>
+ <option value="bfs">BFS — Breadth First Search</option>
+ <option value="astar">A* Search</option>
+ <option value="idastar">IDA* Search</option>
+ </select>
+ <button class="btn btn-eco w-100" onclick="runOptimize()">
+ Run Algorithm
+ </button>
+ </div>
+ </div>
+
+ <div class="card mt-3">
+ </div>
+ </div>
+
+ <!-- Graph Canvas -->
+ <div class="col-md-5">
+ <div class="card">
+ <div class="card-header"> Delivery Network</div>
+ <div class="card-body text-center p-2">
+ <canvas id="graphCanvas" width="420" height="380"></canvas>
+ <p class="text-muted small mt-1">Highlighted path shown after running algorithm.</p>
+ </div>
+ </div>
+ </div>
+
+ <!-- Results -->
+ <div class="col-md-4">
+ <div class="card">
+ <div class="card-header"> Results</div>
+ <div class="card-body" id="resultsArea" style="max-height:420px;overflow-y:auto;">
+ <p class="text-muted text-center mt-4">Configure and run an algorithm to see results here.</p>
+ </div>
+ </div>
+ </div>
+</div>
+
+<!-- Comparison Chart -->
+<div class="row mt-3 g-3">
+ <div class="col-md-6">
+ <div class="card">
+ <div class="card-header"> Nodes Visited (Efficiency)</div>
+ <div class="card-body"><canvas id="nodesChart" height="200"></canvas></div>
+ </div>
+ </div>
+ <div class="col-md-6">
+ <div class="card">
+ <div class="card-header"> Path Cost Comparison</div>
+ <div class="card-body"><canvas id="costChart" height="200"></canvas></div>
+ </div>
+ </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const GRAPH_DATA = {{ graph_json|safe }};
+const COLORS = {dfs:'#e63946', bfs:'#457b9d', 'A*':'#2d6a4f', 'IDA*':'#f4a261'};
+let nodesChart, costChart, currentPath = [];
+
+// ── Canvas graph drawing ──────────────────────────────────────────────────────
+const canvas = document.getElementById('graphCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// Map logical coords to canvas coords
+function toCanvas(x, y) {
+ const minX = -2.5, maxX = 4.5, minY = -2.5, maxY = 5.5;
+ return {
+ cx: ((x - minX) / (maxX - minX)) * (W - 60) + 30,
+ cy: H - (((y - minY) / (maxY - minY)) * (H - 60) + 30)
+ };
+}
+
+function nodePos(name) {
+ const n = GRAPH_DATA.nodes.find(n => n.id === name);
+ return toCanvas(n.x, n.y);
+}
+
+function drawGraph(highlightPath=[]) {
+ ctx.clearRect(0, 0, W, H);
+
+ // Edges
+ GRAPH_DATA.edges.forEach(e => {
+ const a = nodePos(e.from), b = nodePos(e.to);
+ const inPath = highlightPath.includes(e.from) && highlightPath.includes(e.to) &&
+ Math.abs(highlightPath.indexOf(e.from) - highlightPath.indexOf(e.to)) === 1;
+ ctx.beginPath();
+ ctx.moveTo(a.cx, a.cy); ctx.lineTo(b.cx, b.cy);
+ ctx.strokeStyle = inPath ? '#2d6a4f' : '#ccc';
+ ctx.lineWidth = inPath ? 3 : 1.5;
+ ctx.stroke();
+ // Weight label
+ ctx.fillStyle = '#666'; ctx.font = '11px Segoe UI';
+ ctx.fillText(e.weight, (a.cx + b.cx) / 2 + 3, (a.cy + b.cy) / 2 - 3);
+ });
+
+ // Nodes
+ GRAPH_DATA.nodes.forEach(n => {
+ const {cx, cy} = toCanvas(n.x, n.y);
+ const inPath = highlightPath.includes(n.id);
+ ctx.beginPath();
+ ctx.arc(cx, cy, 18, 0, 2 * Math.PI);
+ ctx.fillStyle = inPath ? '#2d6a4f' : '#fff';
+ ctx.strokeStyle = inPath ? '#1b4332' : '#52b788';
+ ctx.lineWidth = 2.5;
+ ctx.fill(); ctx.stroke();
+ ctx.fillStyle = inPath ? '#fff' : '#1b4332';
+ ctx.font = 'bold 9px Segoe UI';
+ ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+ const label = n.id.replace('_', '\n');
+ ctx.fillText(n.id.split('_')[0], cx, cy - 4);
+ ctx.fillText(n.id.split('_')[1] || '', cx, cy + 5);
+ });
+ ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+
+drawGraph();
+
+// ── API call ──────────────────────────────────────────────────────────────────
+async function runOptimize() {
+ const start = document.getElementById('startNode').value;
+ const goal = document.getElementById('goalNode').value;
+ const algo = document.getElementById('algorithm').value;
+
+ if (start === goal) { alert('Start and goal must be different.'); return; }
+
+ document.getElementById('resultsArea').innerHTML =
+ '<div class="text-center py-4"><div class="spinner-border spinner-border-eco"></div><br><small>Running algorithms…</small></div>';
+
+ const res = await fetch('/route/optimize/', {
+ method: 'POST',
+ headers: {'Content-Type':'application/json','X-CSRFToken': getCookie('csrftoken')},
+ body: JSON.stringify({start, goal, algorithm: algo})
+ });
+ const data = await res.json();
+ renderResults(data.results);
+}
+
+function renderResults(results) {
+ let html = '';
+ const chartLabels = [], chartNodes = [], chartCosts = [], chartColors = [];
+
+ results.forEach(r => {
+ const cls = {'DFS':'algo-dfs','BFS':'algo-bfs','A*':'algo-astar','IDA*':'algo-idastar'}[r.algorithm] || '';
+ const pathHtml = r.found
+ ? r.path.map(n => `<span class="path-node">${n}</span>`).join(' <span class="path-arrow">→</span> ')
+ : '<span class="text-danger">No path found</span>';
+ html += `
+ <div class="card mb-2 result-card ${cls}">
+ <div class="card-body py-2 px-3">
+ <div class="d-flex justify-content-between align-items-center mb-1">
+ <strong>${r.algorithm}</strong>
+ ${r.found ? `<span class="badge bg-success">Found</span>` : `<span class="badge bg-danger">Failed</span>`}
+ </div>
+ <div class="mb-1">${pathHtml}</div>
+ ${r.found ? `
+ <div class="row text-center small mt-1">
+ <div class="col">Cost<br><strong>${r.cost}</strong></div>
+ <div class="col">Nodes<br><strong>${r.nodes_count}</strong></div>
+ <div class="col">Time<br><strong>${r.time_ms}ms</strong></div>
+ </div>` : ''}
+ </div>
+ </div>`;
+ if (r.found) {
+ chartLabels.push(r.algorithm);
+ chartNodes.push(r.nodes_count);
+ chartCosts.push(r.cost);
+ chartColors.push(COLORS[r.algorithm] || '#52b788');
+ }
+ });
+
+ document.getElementById('resultsArea').innerHTML = html;
+
+ // Highlight best path (A* or first found)
+ const best = results.find(r => r.algorithm === 'A*' && r.found) || results.find(r => r.found);
+ if (best) drawGraph(best.path);
+
+ buildCharts(chartLabels, chartNodes, chartCosts, chartColors);
+}
+
+function buildCharts(labels, nodes, costs, colors) {
+ if (nodesChart) nodesChart.destroy();
+ if (costChart) costChart.destroy();
+
+ nodesChart = new Chart(document.getElementById('nodesChart'), {
+ type: 'bar',
+ data: { labels, datasets: [{ label: 'Nodes Visited', data: nodes, backgroundColor: colors }] },
+ options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+ });
+ costChart = new Chart(document.getElementById('costChart'), {
+ type: 'bar',
+ data: { labels, datasets: [{ label: 'Path Cost', data: costs, backgroundColor: colors }] },
+ options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+ });
+}
+
+function getCookie(name) {
+ const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+ return v ? v[2] : null;
+}
+</script>
+{% endblock %}
